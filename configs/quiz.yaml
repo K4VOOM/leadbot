@@ -1,0 +1,29 @@
+bot:
+  welcome: "Привіт! Відповідь на 5 питань, і ми підберемо вам рішення 🙌"
+  finish: "Дякуємо! Менеджер зв'яжеться з вами протягом години."
+  manager_chat_id: -1001234567890
+
+steps:
+  - id: type
+    text: "Що вас цікавить?"
+    type: choice
+    options: ["Квартира", "Будинок", "Комерція"]
+
+  - id: budget
+    text: "Ваш бюджет?"
+    type: choice
+    options: ["до $50k", "$50-100k", "$100k+"]
+
+  - id: comment
+    text: "Є побажання? (можна пропустити)"
+    type: text
+    required: false
+
+  - id: phone
+    text: "Залиште номер телефону"
+    type: phone          # кнопка "поділитись контактом" + ручний ввід
+
+  - id: email
+    text: "І email"
+    type: email
+    required: false
