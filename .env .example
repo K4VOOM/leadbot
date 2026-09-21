@@ -1,6 +1,0 @@
-BOT_TOKEN=1234567890:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-POSTGRES_USER=user
-POSTGRES_PASSWORD=password
-POSTGRES_DB=db
-DATABASE_URL=postgresql+asyncpg://РОЛЬ:ПАРОЛЬ@localhost:5432/НАЗВА
