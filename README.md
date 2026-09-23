@@ -79,34 +79,36 @@ leadbot/
 - Перша міграція (`init`) згенерована і застосована: таблиці `users`, `leads`, `alembic_version` створені в БД
 - Цикл `downgrade -1` → `upgrade head` перевірено, працює в обидва боки
 
+**Шар доступу до даних**
+- `app/db/repo.py`: функція `get_or_create_user(session, tg_id, username, first_name, utm_source, utm_campaign) -> User`. Логіка: `INSERT ... ON CONFLICT (tg_id) DO NOTHING`, потім `SELECT` за `tg_id`. UTM для існуючого юзера **не перезаписується** — зберігається перше джерело трафіку.
+- Перевірено вручну через Python-консоль PyCharm: повторний виклик з тим самим `tg_id` не створює новий рядок і не перезаписує `username`/UTM
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
-- Комітиться поетапно, з осмисленими повідомленнями
+- Комітиться поетапно, з осмисленими повідомленнями, після кожного перевіреного кроку
 
 ### 🚧 У процесі
 
-- `app/db/repo.py` — функція `get_or_create_user(session, tg_id, username, first_name, utm_source, utm_campaign) -> User`. Логіка: `INSERT ... ON CONFLICT (tg_id) DO NOTHING`, потім `SELECT` за `tg_id`. UTM для існуючого юзера **не перезаписується** — зберігається перше джерело трафіку.
+- **Middleware сесії** (`app/middlewares/db.py`) — `BaseMiddleware`, що на кожен апдейт відкриває сесію SQLAlchemy, кладе її в `data["session"]`, комітить/відкочує після хендлера; підключення через `dp.update.outer_middleware(...)`
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **`get_or_create_user` в repo.py** — завершити й покрити базовим ручним тестом
-2. **Middleware сесії** — `BaseMiddleware`, що на кожен апдейт відкриває сесію SQLAlchemy, кладе її в `data["session"]`, комітить/відкочує після хендлера; підключення через `dp.update.outer_middleware(...)`
-3. **`/start` з UTM-мітками**:
+1. **`/start` з UTM-мітками**:
    - Перенести хендлери з `main.py` у `app/handlers/start.py` через `Router()`
    - Прибрати `echo_handler` (заважатиме проходженню квізу)
    - Парсинг payload `/start fb-ads1` → `utm_source="fb"`, `utm_campaign="ads1"` через `CommandObject`
    - Обробка порожнього/некоректного payload
-4. **Движок квізу** (`app/quiz/`):
+2. **Движок квізу** (`app/quiz/`):
    - `schema.py` — pydantic-моделі для `quiz.yaml` (кроки типу `choice`, `multi_choice`, `text`, `phone`, `email`)
    - `loader.py` — читання й валідація YAML
    - `engine.py` — логіка проходження: наступний крок, валідація відповіді
    - FSM з одним станом і `step_index` в даних, а не окремий стан на кожне питання
-5. **Збереження ліда** — запис відповідей у `Lead.answers` (JSONB), дедуп (той самий `tg_id` не створює новий лід протягом 24 год)
-6. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
-7. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
-8. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
-9. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
+3. **Збереження ліда** — запис відповідей у `Lead.answers` (JSONB), дедуп (той самий `tg_id` не створює новий лід протягом 24 год)
+4. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
+5. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
+6. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
+7. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
 
 ### 🔮 На перспективу (не пріоритет)
 
@@ -248,34 +250,36 @@ leadbot/
 - The first migration (`init`) generated and applied: `users`, `leads`, `alembic_version` tables created in the database
 - The `downgrade -1` → `upgrade head` cycle verified, works both ways
 
+**Data access layer**
+- `app/db/repo.py`: the `get_or_create_user(session, tg_id, username, first_name, utm_source, utm_campaign) -> User` function. Logic: `INSERT ... ON CONFLICT (tg_id) DO NOTHING`, then `SELECT` by `tg_id`. UTM fields for an existing user are **not overwritten** — the first traffic source is kept.
+- Manually verified via the PyCharm Python console: calling it again with the same `tg_id` doesn't create a new row and doesn't overwrite `username`/UTM
+
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
 - `.env.example` with placeholder values for new contributors
-- Committed incrementally, with meaningful messages
+- Committed incrementally, with meaningful messages, after each verified step
 
 ### 🚧 In progress
 
-- `app/db/repo.py` — the `get_or_create_user(session, tg_id, username, first_name, utm_source, utm_campaign) -> User` function. Logic: `INSERT ... ON CONFLICT (tg_id) DO NOTHING`, then `SELECT` by `tg_id`. UTM fields for an existing user are **not overwritten** — the first traffic source is kept.
+- **Session middleware** (`app/middlewares/db.py`) — a `BaseMiddleware` that opens a SQLAlchemy session per update, puts it in `data["session"]`, commits/rolls back after the handler runs; wired in via `dp.update.outer_middleware(...)`
 
 ### 📋 Planned (next steps)
 
-1. **`get_or_create_user` in repo.py** — finish it and cover it with a basic manual test
-2. **Session middleware** — a `BaseMiddleware` that opens a SQLAlchemy session per update, puts it in `data["session"]`, commits/rolls back after the handler runs; wired in via `dp.update.outer_middleware(...)`
-3. **`/start` with UTM tags**:
+1. **`/start` with UTM tags**:
    - Move handlers out of `main.py` into `app/handlers/start.py` via `Router()`
    - Remove `echo_handler` (it would intercept every message and block the quiz)
    - Parse the payload `/start fb-ads1` → `utm_source="fb"`, `utm_campaign="ads1"` via `CommandObject`
    - Handle empty/malformed payloads
-4. **Quiz engine** (`app/quiz/`):
+2. **Quiz engine** (`app/quiz/`):
    - `schema.py` — pydantic models for `quiz.yaml` (step types: `choice`, `multi_choice`, `text`, `phone`, `email`)
    - `loader.py` — reading and validating the YAML
    - `engine.py` — flow logic: next step, answer validation
    - A single FSM state with `step_index` in the data, instead of a separate state per question
-5. **Saving a lead** — write answers into `Lead.answers` (JSONB), dedup (the same `tg_id` doesn't create a new lead within 24 hours)
-6. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
-7. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
-8. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
-9. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
+3. **Saving a lead** — write answers into `Lead.answers` (JSONB), dedup (the same `tg_id` doesn't create a new lead within 24 hours)
+4. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
+5. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
+6. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
+7. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
 
 ### 🔮 Down the line (not a priority)
 
