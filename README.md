@@ -1,3 +1,7 @@
+**🇺🇦 [Українською](#leadbot--telegram-бот-для-збору-лідів) | 🇬🇧 [English](#leadbot--telegram-lead-generation-bot)**
+
+---
+
 # LeadBot — Telegram-бот для збору лідів
 
 Telegram-бот на aiogram 3 для проведення квізу, збору заявок (лідів) і передачі їх менеджеру. Квіз описується конфігом (YAML), а не хардкодиться в коді — це головна ідея проєкту: під нового клієнта на фрілансі можна підключити нову анкету без переписування логіки.
@@ -159,3 +163,174 @@ python -m app.main
 5. AI-бот підтримки з базою знань (RAG)
 
 Для портфоліо: живий демо-бот + другий `quiz.yaml` під іншу нішу, щоб наочно показати швидкість кастомізації під нового клієнта.
+
+**[⬆ Перемкнутись на English](#leadbot--telegram-lead-generation-bot)**
+
+---
+---
+
+# LeadBot — Telegram lead-generation bot
+
+**🇺🇦 [Українською](#leadbot--telegram-бот-для-збору-лідів) | 🇬🇧 [English](#leadbot--telegram-lead-generation-bot)**
+
+A Telegram bot built on aiogram 3 that runs a quiz, collects leads, and forwards them to a manager. The quiz is defined by a config file (YAML) rather than hardcoded in the code — that's the core idea of the project: onboarding a new freelance client should mean swapping a config, not rewriting logic.
+
+A portfolio pet project for going freelance. The stack is deliberately chosen at a "production-grade" level of complexity rather than a minimal MVP.
+
+## Stack
+
+- **Python 3.14**
+- **aiogram 3** — Telegram Bot API framework
+- **PostgreSQL 16** — main database (in Docker)
+- **SQLAlchemy 2.0 (async)** — ORM, `Mapped[...]` / `mapped_column` style
+- **asyncpg** — async Postgres driver
+- **Alembic** (async template) — database schema migrations
+- **pydantic-settings** — config from `.env`
+- **Docker Compose** — local Postgres
+
+Planned but not yet wired in:
+- **Redis** — for aiogram FSM and caching
+- **Google Sheets (gspread)** — lead export
+- **APScheduler / Celery** — broadcasts, reminders
+
+## Project structure
+
+```
+leadbot/
+├── app/
+│   ├── main.py              # entry point, starts polling
+│   ├── config.py            # Settings (pydantic-settings), reads .env
+│   ├── db/
+│   │   ├── session.py       # Base, async engine, async_sessionmaker
+│   │   ├── models.py        # ORM models: User, Lead
+│   │   └── repo.py          # data access functions (in progress)
+│   └── handlers/            # aiogram routers (not yet split out of main.py)
+├── configs/
+│   └── quiz.yaml            # quiz config (planned, not yet read by the code)
+├── alembic/
+│   ├── env.py                # configured for async engine + settings.database_url
+│   └── versions/
+│       └── 9bace4ced334_init.py   # initial migration: users, leads
+├── docker-compose.yml        # db service (postgres:16), loopback port, healthcheck
+├── .env                       # secrets, NOT in git
+├── .env.example                # template for .env
+├── requirements.txt
+└── alembic.ini
+```
+
+## Current state (as of today)
+
+### ✅ Done
+
+**Infrastructure**
+- Docker + Docker Compose installed and configured (Arch/CachyOS required the `docker-compose` plugin as a separate package, plus adding the user to the `docker` group)
+- Postgres 16 running in a container, port exposed only on `127.0.0.1` (safe for local development)
+- Healthcheck on the DB container (`pg_isready`), `start_period: 10s`
+- `docker-compose.yml` with `name: leadbot`, mandatory `POSTGRES_PASSWORD` via `.env` (`:?` syntax — fails fast if not set)
+- PyCharm Docker Compose integration connected and working (Services tab, running the service directly from the IDE)
+
+**Configuration**
+- `app/config.py`: a `Settings(BaseSettings)` class with `bot_token` and `database_url` fields
+- The path to `.env` is built from `Path(__file__).resolve().parent.parent`, so the config works regardless of the working directory it's run from
+- `extra="ignore"` in `SettingsConfigDict`, so extra compose variables (`POSTGRES_USER`, etc.) don't break validation
+
+**Database layer**
+- `app/db/session.py`: `Base` with a custom `naming_convention` (`ix_`, `uq_`, `ck_`, `fk_`, `pk_` — consistent constraint names for readable migrations), async `engine` with `pool_pre_ping=True`, `async_sessionmaker` with `expire_on_commit=False`
+- `app/db/models.py`:
+  - `User`: `tg_id` (BigInteger, unique, indexed), `username`, `first_name`, `utm_source`, `utm_campaign`, `subscribed` (bool, default True), `created_at` (timezone-aware, server-side default)
+  - `Lead`: `user_id` (FK to `users.id`, `ondelete=SET NULL`, nullable), `answers` (JSONB), `status` (default `"new"`), `created_at`
+  - `relationship` on both sides (`User.leads` ↔ `Lead.user`)
+- Connection to the real database verified (`SELECT 1` through the async engine — works)
+
+**Migrations**
+- Alembic initialized with the `-t async` template
+- `env.py` configured: imports `Base` and the models, `target_metadata = Base.metadata`, the engine is built from `settings.database_url` (not from `alembic.ini`)
+- The first migration (`init`) generated and applied: `users`, `leads`, `alembic_version` tables created in the database
+- The `downgrade -1` → `upgrade head` cycle verified, works both ways
+
+**Git**
+- Repository initialized, `.env` and `.venv` are not committed
+- `.env.example` with placeholder values for new contributors
+- Committed incrementally, with meaningful messages
+
+### 🚧 In progress
+
+- `app/db/repo.py` — the `get_or_create_user(session, tg_id, username, first_name, utm_source, utm_campaign) -> User` function. Logic: `INSERT ... ON CONFLICT (tg_id) DO NOTHING`, then `SELECT` by `tg_id`. UTM fields for an existing user are **not overwritten** — the first traffic source is kept.
+
+### 📋 Planned (next steps)
+
+1. **`get_or_create_user` in repo.py** — finish it and cover it with a basic manual test
+2. **Session middleware** — a `BaseMiddleware` that opens a SQLAlchemy session per update, puts it in `data["session"]`, commits/rolls back after the handler runs; wired in via `dp.update.outer_middleware(...)`
+3. **`/start` with UTM tags**:
+   - Move handlers out of `main.py` into `app/handlers/start.py` via `Router()`
+   - Remove `echo_handler` (it would intercept every message and block the quiz)
+   - Parse the payload `/start fb-ads1` → `utm_source="fb"`, `utm_campaign="ads1"` via `CommandObject`
+   - Handle empty/malformed payloads
+4. **Quiz engine** (`app/quiz/`):
+   - `schema.py` — pydantic models for `quiz.yaml` (step types: `choice`, `multi_choice`, `text`, `phone`, `email`)
+   - `loader.py` — reading and validating the YAML
+   - `engine.py` — flow logic: next step, answer validation
+   - A single FSM state with `step_index` in the data, instead of a separate state per question
+5. **Saving a lead** — write answers into `Lead.answers` (JSONB), dedup (the same `tg_id` doesn't create a new lead within 24 hours)
+6. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
+7. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
+8. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
+9. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
+
+### 🔮 Down the line (not a priority)
+
+- Tests for `repo.py` and `engine.py` (pytest + testcontainers or a separate test database)
+- CI (GitHub Actions): lint + tests on push
+- Deployment to a VPS/Railway with `docker-compose.prod.yml`
+- A second `quiz.yaml` example for a different niche — for the portfolio, to show how quickly the template can be reconfigured for a new client
+- Rate limiting and spam protection at the handler level
+
+## Key architectural decisions
+
+- **Quiz as data, not code.** The entire questionnaire is described by a YAML config, and the engine reads and executes it. The goal is to onboard a new freelance client by swapping a config, not by rewriting handlers.
+- **Schema managed only through Alembic.** `Base.metadata.create_all()` is deliberately not used in the code — to avoid drifting from the migration state and to avoid breaking the async engine (create_all requires a synchronous connection).
+- **`ondelete=SET NULL` on `Lead.user_id`.** Leads are kept even if the user is deleted from the `users` table — important for CRM logic, submitted leads shouldn't disappear.
+- **UTM is stored once.** The first traffic source is treated as the source of truth; returning through a different `/start` parameter doesn't overwrite it.
+- **`expire_on_commit=False` on sessions.** Required for async SQLAlchemy — otherwise accessing object attributes after a commit triggers a lazy-load error in an async context.
+
+## Known pitfalls (notes to self)
+
+- `naming_convention` needs to be set from the very start — adding it later means rewriting migrations that were already applied
+- JSONB fields (`Lead.answers`) aren't picked up by SQLAlchemy when mutated in place (`lead.answers["x"] = 1` won't work) — needs `MutableDict` or a full field reassignment
+- Postgres only reads `POSTGRES_USER`/`PASSWORD`/`DB` from `.env` on the first initialization of an empty volume — changing the password later requires `ALTER USER` or `docker compose down -v`
+- The `docker` group on Linux only applies in new sessions/terminals — after `usermod -aG docker` you need to re-login; `newgrp` only fixes the current terminal
+- In the fish shell, activating a venv is done via `source .venv/bin/activate.fish`, not the regular `activate`
+
+## Running locally
+
+```bash
+# 1. Start Postgres
+docker compose up -d
+
+# 2. Install dependencies
+python -m venv .venv
+source .venv/bin/activate  # or .venv/bin/activate.fish for fish
+pip install -r requirements.txt
+
+# 3. Set up .env (copy from .env.example and fill in)
+cp .env.example .env
+
+# 4. Apply migrations
+alembic upgrade head
+
+# 5. Run the bot
+python -m app.main
+```
+
+## Project goal
+
+This is the first of five Telegram bot pet projects for going freelance:
+1. Storefront bot with payments and an admin panel
+2. Booking bot for services
+3. Paid subscription bot for a private channel
+4. **Lead-gen bot with a quiz and CRM integration ← this project**
+5. AI support bot with a knowledge base (RAG)
+
+For the portfolio: a live demo bot + a second `quiz.yaml` for a different niche, to visibly demonstrate how fast the template can be customized for a new client.
+
+**[⬆ Switch to Ukrainian](#leadbot--telegram-бот-для-збору-лідів)**
