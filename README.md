@@ -28,25 +28,39 @@ Telegram-бот на aiogram 3 для проведення квізу, збор�
 
 ```
 leadbot/
-├── app/
-│   ├── main.py              # точка входу, запуск polling
-│   ├── config.py            # Settings (pydantic-settings), читає .env
-│   ├── db/
-│   │   ├── session.py       # Base, async engine, async_sessionmaker
-│   │   ├── models.py        # ORM-моделі: User, Lead
-│   │   └── repo.py          # функції доступу до даних (у розробці)
-│   └── handlers/            # роутери aiogram (ще не винесені з main.py)
-├── configs/
-│   └── quiz.yaml            # конфіг квізу (заплановано, ще не використовується кодом)
 ├── alembic/
-│   ├── env.py                # налаштований на async engine + settings.database_url
+│   ├── env.py                    # налаштований на async engine + settings.database_url
 │   └── versions/
-│       └── 9bace4ced334_init.py   # початкова міграція: users, leads
-├── docker-compose.yml        # сервіс db (postgres:16), loopback-порт, healthcheck
-├── .env                       # секрети, НЕ в git
-├── .env.example                # шаблон для .env
-├── requirements.txt
-└── alembic.ini
+│       └── 9bace4ced334_init.py       # початкова міграція: users, leads
+├── app/
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── models.py            # ORM-моделі: User, Lead
+│   │   ├── repo.py              # get_or_create_user з on_conflict_do_nothing
+│   │   └── session.py           # Base, async engine, async_sessionmaker
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   ├── quiz.py              # обробка відповідей квізу, рух по кроках
+│   │   └── start.py             # /start: UTM, get_or_create_user, ініціалізація квізу
+│   ├── middlewares/
+│   │   ├── __init__.py
+│   │   └── db.py                # DbSessionMiddleware: сесія на кожен апдейт
+│   ├── quiz/
+│   │   ├── __init__.py
+│   │   ├── engine.py            # QuizStates, get_current_step()
+│   │   ├── loader.py            # load_quiz() — читання й валідація quiz.yaml
+│   │   └── schema.py            # pydantic-моделі BotSetting, Step, Quiz
+│   ├── __init__.py
+│   ├── config.py                # Settings (pydantic-settings), читає .env; тут же завантажується quiz
+│   └── main.py                  # точка входу, запуск polling, підключення роутерів і middleware
+├── configs/
+│   └── quiz.yaml                 # конфіг квізу: кроки, привітання, текст завершення
+├── .env                            # секрети, НЕ в git
+├── .env.example                     # шаблон для .env
+├── .gitignore
+├── alembic.ini
+├── docker-compose.yml             # сервіс db (postgres:16), loopback-порт, healthcheck
+└── requirements.txt
 ```
 
 ## Поточний стан (станом на сьогодні)
@@ -99,6 +113,11 @@ leadbot/
 - Конфіг квізу завантажується один раз при старті (`quiz = load_quiz(QUIZ_PATH)` в `config.py`, на рівні модуля — Python кешує імпорт, тому файл читається рівно один раз)
 - `/start` тепер ще й ініціалізує квіз: виставляє `step_index=0`, `answers={}`, стан `QuizStates.in_progress`, показує привітання і перше питання
 
+**Обробка відповідей квізу**
+- `app/handlers/quiz.py`: окремий хендлер на фільтр стану `QuizStates.in_progress`, реагує на будь-яке повідомлення користувача під час проходження квізу
+- Логіка: зберігає відповідь у `answers[крок.id]`, збільшує `step_index`, показує наступне питання; на останньому кроці показує `quiz.bot.finish` і скидає стан
+- Перевірено в реальному боті: питання приходять по порядку, після завершення бот більше не реагує на повідомлення (`is not handled` у логах — стан скинутий коректно)
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
@@ -106,13 +125,13 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Обробка відповідей квізу** (`app/handlers/quiz.py`) — окремий хендлер на фільтр стану `QuizStates.in_progress`: приймає відповідь, зберігає в `answers[крок.id]`, збільшує `step_index`, показує наступне питання або завершує квіз
+- **Збереження ліда в БД** — по завершенню квізу створити `Lead` з накопиченими `answers` і прив'язкою до `user.id` (через повторний виклик `get_or_create_user` за `tg_id`, який поверне вже існуючого юзера), зберегти через сесію перед `state.clear()`
 
 ### 📋 Заплановано (найближчі кроки)
 
 1. **Клавіатури для кроків типу `choice`/`multi_choice`** — побудова inline/reply-клавіатури з `options` кроку
 2. **Валідація відповідей** — формат для `phone`/`email`, перевірка що вибір належить `options`
-3. **Збереження ліда** — запис відповідей у `Lead.answers` (JSONB) по завершенню квізу, дедуп (той самий `tg_id` не створює новий лід протягом 24 год)
+3. **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
 4. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
 5. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
 6. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
@@ -207,25 +226,39 @@ Planned but not yet wired in:
 
 ```
 leadbot/
-├── app/
-│   ├── main.py              # entry point, starts polling
-│   ├── config.py            # Settings (pydantic-settings), reads .env
-│   ├── db/
-│   │   ├── session.py       # Base, async engine, async_sessionmaker
-│   │   ├── models.py        # ORM models: User, Lead
-│   │   └── repo.py          # data access functions (in progress)
-│   └── handlers/            # aiogram routers (not yet split out of main.py)
-├── configs/
-│   └── quiz.yaml            # quiz config (planned, not yet read by the code)
 ├── alembic/
-│   ├── env.py                # configured for async engine + settings.database_url
+│   ├── env.py                    # configured for async engine + settings.database_url
 │   └── versions/
-│       └── 9bace4ced334_init.py   # initial migration: users, leads
-├── docker-compose.yml        # db service (postgres:16), loopback port, healthcheck
-├── .env                       # secrets, NOT in git
-├── .env.example                # template for .env
-├── requirements.txt
-└── alembic.ini
+│       └── 9bace4ced334_init.py       # initial migration: users, leads
+├── app/
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── models.py            # ORM models: User, Lead
+│   │   ├── repo.py              # get_or_create_user with on_conflict_do_nothing
+│   │   └── session.py           # Base, async engine, async_sessionmaker
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   ├── quiz.py              # quiz answer handling, step progression
+│   │   └── start.py             # /start: UTM, get_or_create_user, quiz initialization
+│   ├── middlewares/
+│   │   ├── __init__.py
+│   │   └── db.py                # DbSessionMiddleware: a session per update
+│   ├── quiz/
+│   │   ├── __init__.py
+│   │   ├── engine.py            # QuizStates, get_current_step()
+│   │   ├── loader.py            # load_quiz() — reads and validates quiz.yaml
+│   │   └── schema.py            # pydantic models BotSetting, Step, Quiz
+│   ├── __init__.py
+│   ├── config.py                # Settings (pydantic-settings), reads .env; also loads quiz
+│   └── main.py                  # entry point, starts polling, wires up routers and middleware
+├── configs/
+│   └── quiz.yaml                 # quiz config: steps, welcome message, finish message
+├── .env                            # secrets, NOT in git
+├── .env.example                     # template for .env
+├── .gitignore
+├── alembic.ini
+├── docker-compose.yml             # db service (postgres:16), loopback port, healthcheck
+└── requirements.txt
 ```
 
 ## Current state (as of today)
@@ -278,6 +311,11 @@ leadbot/
 - The quiz config is loaded once at startup (`quiz = load_quiz(QUIZ_PATH)` in `config.py`, at module level — Python caches the import, so the file is read exactly once)
 - `/start` now also initializes the quiz: sets `step_index=0`, `answers={}`, state `QuizStates.in_progress`, shows the welcome message and the first question
 
+**Quiz answer handling**
+- `app/handlers/quiz.py`: a separate handler filtered on state `QuizStates.in_progress`, reacting to any user message while the quiz is in progress
+- Logic: stores the answer in `answers[step.id]`, increments `step_index`, shows the next question; on the last step shows `quiz.bot.finish` and clears the state
+- Verified on the live bot: questions arrive in order, and after finishing the bot no longer reacts to messages (`is not handled` in the logs — the state was cleared correctly)
+
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
 - `.env.example` with placeholder values for new contributors
@@ -285,13 +323,13 @@ leadbot/
 
 ### 🚧 In progress
 
-- **Quiz answer handling** (`app/handlers/quiz.py`) — a separate handler filtered on state `QuizStates.in_progress`: takes the answer, stores it in `answers[step.id]`, increments `step_index`, shows the next question or finishes the quiz
+- **Saving a lead to the database** — once the quiz finishes, create a `Lead` with the accumulated `answers` linked to `user.id` (via another call to `get_or_create_user` by `tg_id`, which will return the already-existing user), save it through the session before `state.clear()`
 
 ### 📋 Planned (next steps)
 
 1. **Keyboards for `choice`/`multi_choice` steps** — building an inline/reply keyboard from the step's `options`
 2. **Answer validation** — format checks for `phone`/`email`, checking that a choice is among `options`
-3. **Saving a lead** — write answers into `Lead.answers` (JSONB) once the quiz finishes, dedup (the same `tg_id` doesn't create a new lead within 24 hours)
+3. **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
 4. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
 5. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
 6. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
