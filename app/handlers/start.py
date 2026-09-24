@@ -1,15 +1,22 @@
-from aiogram import Router, html
+from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.filters.command import CommandObject
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repo import get_or_create_user
+from app.quiz.engine import QuizStates, get_current_step
+from app.config import quiz
 
 router = Router()
 
 @router.message(CommandStart())
-async def command_start_handler(message: Message, command: CommandObject, session: AsyncSession) -> None:
+async def command_start_handler(
+        message: Message,
+        command: CommandObject,
+        session: AsyncSession,
+        state: FSMContext) -> None:
     utm_source = None
     utm_campaign = None
     if command.args is not None:
@@ -29,5 +36,11 @@ async def command_start_handler(message: Message, command: CommandObject, sessio
         utm_campaign=utm_campaign,
     )
 
-    name = html.quote(message.from_user.full_name)
-    await message.answer(f"Привіт, {name}!")
+    await state.update_data(step_index=0, answers={})
+    await state.set_state(QuizStates.in_progress)
+
+    await message.answer(quiz.bot.welcome)
+
+    first_step = get_current_step(quiz, 0)
+    if first_step is not None:
+        await message.answer(first_step.text)

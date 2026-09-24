@@ -83,6 +83,22 @@ leadbot/
 - `app/db/repo.py`: функція `get_or_create_user(session, tg_id, username, first_name, utm_source, utm_campaign) -> User`. Логіка: `INSERT ... ON CONFLICT (tg_id) DO NOTHING`, потім `SELECT` за `tg_id`. UTM для існуючого юзера **не перезаписується** — зберігається перше джерело трафіку.
 - Перевірено вручну через Python-консоль PyCharm: повторний виклик з тим самим `tg_id` не створює новий рядок і не перезаписує `username`/UTM
 
+**Middleware**
+- `app/middlewares/db.py`: `DbSessionMiddleware` — на кожен апдейт відкриває сесію SQLAlchemy, кладе в `data["session"]`, комітить після хендлера, робить rollback і прокидає виняток далі при помилці; підключений через `dp.update.outer_middleware(...)`
+- Перевірено вручну: сесія доступна в хендлері, транзакція комітиться без винятків
+
+**`/start` з UTM-мітками**
+- Хендлер винесений у `app/handlers/start.py` через `Router()`, `echo_handler` прибраний з `main.py`
+- Парсинг payload `/start fb-ads1` → `utm_source="fb"`, `utm_campaign="ads1"` через `CommandObject.args.split("-", 1)`, з обробкою порожнього payload і payload без дефіса
+- Перевірено через psql: UTM зберігається правильно і не перезаписується при повторному `/start` з іншим payload
+
+**Движок квізу (початок)**
+- `app/quiz/schema.py`: pydantic-моделі `BotSetting`, `Step` (з `Literal` для типу кроку), `Quiz`
+- `app/quiz/loader.py`: `load_quiz()` читає й валідує `configs/quiz.yaml` через `yaml.safe_load` + pydantic
+- `app/quiz/engine.py`: `QuizStates` (один FSM-стан `in_progress`), `get_current_step(quiz, step_index)` — повертає поточний крок або `None`, якщо кроки закінчились
+- Конфіг квізу завантажується один раз при старті (`quiz = load_quiz(QUIZ_PATH)` в `config.py`, на рівні модуля — Python кешує імпорт, тому файл читається рівно один раз)
+- `/start` тепер ще й ініціалізує квіз: виставляє `step_index=0`, `answers={}`, стан `QuizStates.in_progress`, показує привітання і перше питання
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
@@ -90,21 +106,13 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Middleware сесії** (`app/middlewares/db.py`) — `BaseMiddleware`, що на кожен апдейт відкриває сесію SQLAlchemy, кладе її в `data["session"]`, комітить/відкочує після хендлера; підключення через `dp.update.outer_middleware(...)`
+- **Обробка відповідей квізу** (`app/handlers/quiz.py`) — окремий хендлер на фільтр стану `QuizStates.in_progress`: приймає відповідь, зберігає в `answers[крок.id]`, збільшує `step_index`, показує наступне питання або завершує квіз
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **`/start` з UTM-мітками**:
-   - Перенести хендлери з `main.py` у `app/handlers/start.py` через `Router()`
-   - Прибрати `echo_handler` (заважатиме проходженню квізу)
-   - Парсинг payload `/start fb-ads1` → `utm_source="fb"`, `utm_campaign="ads1"` через `CommandObject`
-   - Обробка порожнього/некоректного payload
-2. **Движок квізу** (`app/quiz/`):
-   - `schema.py` — pydantic-моделі для `quiz.yaml` (кроки типу `choice`, `multi_choice`, `text`, `phone`, `email`)
-   - `loader.py` — читання й валідація YAML
-   - `engine.py` — логіка проходження: наступний крок, валідація відповіді
-   - FSM з одним станом і `step_index` в даних, а не окремий стан на кожне питання
-3. **Збереження ліда** — запис відповідей у `Lead.answers` (JSONB), дедуп (той самий `tg_id` не створює новий лід протягом 24 год)
+1. **Клавіатури для кроків типу `choice`/`multi_choice`** — побудова inline/reply-клавіатури з `options` кроку
+2. **Валідація відповідей** — формат для `phone`/`email`, перевірка що вибір належить `options`
+3. **Збереження ліда** — запис відповідей у `Lead.answers` (JSONB) по завершенню квізу, дедуп (той самий `tg_id` не створює новий лід протягом 24 год)
 4. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
 5. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
 6. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
@@ -254,6 +262,22 @@ leadbot/
 - `app/db/repo.py`: the `get_or_create_user(session, tg_id, username, first_name, utm_source, utm_campaign) -> User` function. Logic: `INSERT ... ON CONFLICT (tg_id) DO NOTHING`, then `SELECT` by `tg_id`. UTM fields for an existing user are **not overwritten** — the first traffic source is kept.
 - Manually verified via the PyCharm Python console: calling it again with the same `tg_id` doesn't create a new row and doesn't overwrite `username`/UTM
 
+**Middleware**
+- `app/middlewares/db.py`: `DbSessionMiddleware` — opens a SQLAlchemy session per update, puts it in `data["session"]`, commits after the handler runs, rolls back and re-raises on error; wired in via `dp.update.outer_middleware(...)`
+- Manually verified: the session is available inside the handler, the transaction commits with no exceptions
+
+**`/start` with UTM tags**
+- The handler was moved into `app/handlers/start.py` via `Router()`, `echo_handler` removed from `main.py`
+- Payload parsing `/start fb-ads1` → `utm_source="fb"`, `utm_campaign="ads1"` via `CommandObject.args.split("-", 1)`, handling empty payloads and payloads without a dash
+- Verified via psql: UTM is stored correctly and isn't overwritten on a repeat `/start` with a different payload
+
+**Quiz engine (started)**
+- `app/quiz/schema.py`: pydantic models `BotSetting`, `Step` (with `Literal` for the step type), `Quiz`
+- `app/quiz/loader.py`: `load_quiz()` reads and validates `configs/quiz.yaml` via `yaml.safe_load` + pydantic
+- `app/quiz/engine.py`: `QuizStates` (a single FSM state, `in_progress`), `get_current_step(quiz, step_index)` — returns the current step or `None` once the steps run out
+- The quiz config is loaded once at startup (`quiz = load_quiz(QUIZ_PATH)` in `config.py`, at module level — Python caches the import, so the file is read exactly once)
+- `/start` now also initializes the quiz: sets `step_index=0`, `answers={}`, state `QuizStates.in_progress`, shows the welcome message and the first question
+
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
 - `.env.example` with placeholder values for new contributors
@@ -261,21 +285,13 @@ leadbot/
 
 ### 🚧 In progress
 
-- **Session middleware** (`app/middlewares/db.py`) — a `BaseMiddleware` that opens a SQLAlchemy session per update, puts it in `data["session"]`, commits/rolls back after the handler runs; wired in via `dp.update.outer_middleware(...)`
+- **Quiz answer handling** (`app/handlers/quiz.py`) — a separate handler filtered on state `QuizStates.in_progress`: takes the answer, stores it in `answers[step.id]`, increments `step_index`, shows the next question or finishes the quiz
 
 ### 📋 Planned (next steps)
 
-1. **`/start` with UTM tags**:
-   - Move handlers out of `main.py` into `app/handlers/start.py` via `Router()`
-   - Remove `echo_handler` (it would intercept every message and block the quiz)
-   - Parse the payload `/start fb-ads1` → `utm_source="fb"`, `utm_campaign="ads1"` via `CommandObject`
-   - Handle empty/malformed payloads
-2. **Quiz engine** (`app/quiz/`):
-   - `schema.py` — pydantic models for `quiz.yaml` (step types: `choice`, `multi_choice`, `text`, `phone`, `email`)
-   - `loader.py` — reading and validating the YAML
-   - `engine.py` — flow logic: next step, answer validation
-   - A single FSM state with `step_index` in the data, instead of a separate state per question
-3. **Saving a lead** — write answers into `Lead.answers` (JSONB), dedup (the same `tg_id` doesn't create a new lead within 24 hours)
+1. **Keyboards for `choice`/`multi_choice` steps** — building an inline/reply keyboard from the step's `options`
+2. **Answer validation** — format checks for `phone`/`email`, checking that a choice is among `options`
+3. **Saving a lead** — write answers into `Lead.answers` (JSONB) once the quiz finishes, dedup (the same `tg_id` doesn't create a new lead within 24 hours)
 4. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
 5. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
 6. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers

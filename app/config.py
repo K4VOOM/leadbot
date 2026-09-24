@@ -1,6 +1,6 @@
 from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.quiz.loader import load_quiz, QUIZ_PATH
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -16,3 +16,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+quiz = load_quiz(QUIZ_PATH)
