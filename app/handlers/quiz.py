@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import quiz
 from app.quiz.engine import QuizStates, get_current_step
+from app.db.repo import get_or_create_user
+from app.db.models import Lead
 
 router = Router()
 
@@ -29,5 +31,15 @@ async def quiz_answer_handler(
         await state.update_data(step_index=next_index, answers=answers)
         await message.answer(next_step.text)
     else:
+        user = await get_or_create_user(
+            session=session,
+            tg_id=message.from_user.id,
+            username=message.from_user.username,
+            first_name=message.from_user.first_name,
+            utm_source=None,
+            utm_campaign=None,
+        )
+        lead = Lead(user_id=user.id, answers=answers)
+        session.add(lead)
         await message.answer(quiz.bot.finish)
         await state.clear()
