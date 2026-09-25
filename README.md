@@ -118,6 +118,11 @@ leadbot/
 - Логіка: зберігає відповідь у `answers[крок.id]`, збільшує `step_index`, показує наступне питання; на останньому кроці показує `quiz.bot.finish` і скидає стан
 - Перевірено в реальному боті: питання приходять по порядку, після завершення бот більше не реагує на повідомлення (`is not handled` у логах — стан скинутий коректно)
 
+**Збереження ліда в БД**
+- По завершенню квізу створюється `Lead` з накопиченими `answers` (JSONB) і прив'язкою до `user.id` (через повторний виклик `get_or_create_user` за `tg_id`, який повертає вже існуючого юзера)
+- `session.add(lead)` перед `state.clear()` — якщо збереження впаде, стан юзера не скидається, і відповіді не губляться
+- Перевірено через psql: рядок у `leads` містить усі відповіді квізу, правильний `user_id`, `status="new"` і заповнений `created_at` (обидва — Python-side/server-side дефолти, нічого не передавалось вручну)
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
@@ -125,16 +130,15 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Збереження ліда в БД** — по завершенню квізу створити `Lead` з накопиченими `answers` і прив'язкою до `user.id` (через повторний виклик `get_or_create_user` за `tg_id`, який поверне вже існуючого юзера), зберегти через сесію перед `state.clear()`
+- **Клавіатури для кроків типу `choice`/`multi_choice`** — побудова inline/reply-клавіатури з `options` кроку, замість очікування довільного тексту
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **Клавіатури для кроків типу `choice`/`multi_choice`** — побудова inline/reply-клавіатури з `options` кроку
-2. **Валідація відповідей** — формат для `phone`/`email`, перевірка що вибір належить `options`
-3. **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
-4. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
-5. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
-6. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
+1. **Валідація відповідей** — формат для `phone`/`email`, перевірка що вибір належить `options`
+2. **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
+3. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
+4. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
+5. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
 7. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
 
 ### 🔮 На перспективу (не пріоритет)
@@ -316,6 +320,11 @@ leadbot/
 - Logic: stores the answer in `answers[step.id]`, increments `step_index`, shows the next question; on the last step shows `quiz.bot.finish` and clears the state
 - Verified on the live bot: questions arrive in order, and after finishing the bot no longer reacts to messages (`is not handled` in the logs — the state was cleared correctly)
 
+**Saving a lead to the database**
+- Once the quiz finishes, a `Lead` is created with the accumulated `answers` (JSONB) linked to `user.id` (via another call to `get_or_create_user` by `tg_id`, which returns the already-existing user)
+- `session.add(lead)` happens before `state.clear()` — if saving fails, the user's state isn't cleared and the answers aren't lost
+- Verified via psql: the row in `leads` contains all quiz answers, the correct `user_id`, `status="new"`, and a populated `created_at` (both are Python-side/server-side defaults, nothing passed manually)
+
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
 - `.env.example` with placeholder values for new contributors
@@ -323,12 +332,15 @@ leadbot/
 
 ### 🚧 In progress
 
-- **Saving a lead to the database** — once the quiz finishes, create a `Lead` with the accumulated `answers` linked to `user.id` (via another call to `get_or_create_user` by `tg_id`, which will return the already-existing user), save it through the session before `state.clear()`
+- **Keyboards for `choice`/`multi_choice` steps** — building an inline/reply keyboard from the step's `options`, instead of waiting for free-form text
 
 ### 📋 Planned (next steps)
 
-1. **Keyboards for `choice`/`multi_choice` steps** — building an inline/reply keyboard from the step's `options`
-2. **Answer validation** — format checks for `phone`/`email`, checking that a choice is among `options`
+1. **Answer validation** — format checks for `phone`/`email`, checking that a choice is among `options`
+2. **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
+3. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
+4. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
+5. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
 3. **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
 4. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
 5. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
