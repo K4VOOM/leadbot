@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram import F
 from aiogram.types import ReplyKeyboardRemove
 
+import re
+
 from app.config import quiz
 from app.quiz.engine import QuizStates, get_current_step
 from app.db.repo import get_or_create_user
@@ -32,9 +34,30 @@ async def quiz_answer_handler(
     if current_step is None:
         return
 
-    if current_step.type == "choice" and message.text not in current_step.options:
-            await message.answer("Оберіть вірну опцію", reply_markup=build_keyboard(current_step))
-            return
+    match current_step.type:
+        case "choice":
+            if message.text not in current_step.options:
+                await message.answer("Оберіть вірну опцію", reply_markup=build_keyboard(current_step))
+                return
+        case "email":
+            if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", message.text) is None:
+                await message.answer("Введіть дійсну адресу", reply_markup=build_keyboard(current_step))
+                return
+        case "phone":
+            phone = message.text
+            phone = phone.replace(" ","")
+            phone = phone.replace("-", "")
+            if phone[0:1] == "+":
+                phone = phone[1:]
+            if phone[0:2] == "38":
+                phone = phone[2:]
+            if len(phone) != 10:
+                await message.answer("Введіть дійсний номер", reply_markup=build_keyboard(current_step))
+                return
+        case "text":
+            ...
+        case "multi_choice":
+            ...
 
     answers[current_step.id] = message.text
     next_index = step_index + 1
