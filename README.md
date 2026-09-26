@@ -129,6 +129,14 @@ leadbot/
 - Окремий хендлер `cancel_quiz_handler` на точний текст кнопки (`F.text == "❌Скасувати"`), зареєстрований **до** `quiz_answer_handler` у файлі — порядок реєстрації в aiogram визначає, який хендлер перехопить повідомлення першим
 - Перевірено на живому боті: клавіатура з'являється на `choice`-кроках, зникає на текстових, скасування коректно чистить стан і забирає клавіатуру
 
+**Валідація відповідей**
+- У `quiz_answer_handler` розбір за типом кроку через `match current_step.type:`
+- `choice` — перевірка, що `message.text` дійсно є серед `step.options`, інакше повторний запит з клавіатурою
+- `email` — перевірка формату через регулярний вираз
+- `phone` — нормалізація (прибирання пробілів, дефісів, `+`, коду країни `38`) і перевірка довжини на 10 цифр
+- `text`/`multi_choice` — без додаткової валідації поки що
+- При невдалій валідації квіз **не рухається далі**: `step_index` і `answers` не змінюються, користувачу показується повідомлення з проханням повторити
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
@@ -136,15 +144,14 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Валідація відповідей** — перевірка, що відповідь на `choice`-крок дійсно належить `step.options` (а не довільний текст), формат для `phone`/`email`
+- **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
-2. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
-3. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
-4. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
-7. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
+1. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
+2. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
+3. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
+4. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
 
 ### 🔮 На перспективу (не пріоритет)
 
@@ -336,6 +343,14 @@ leadbot/
 - A separate `cancel_quiz_handler` matching the exact button text (`F.text == "❌Скасувати"`), registered **before** `quiz_answer_handler` in the file — in aiogram, registration order determines which handler catches a message first
 - Verified on the live bot: the keyboard appears on `choice` steps, disappears on text steps, and cancelling correctly clears the state and removes the keyboard
 
+**Answer validation**
+- In `quiz_answer_handler`, branching by step type via `match current_step.type:`
+- `choice` — checks that `message.text` is actually among `step.options`, otherwise re-asks with the keyboard
+- `email` — format check via a regular expression
+- `phone` — normalization (stripping spaces, dashes, `+`, the `38` country code) and a length check for 10 digits
+- `text`/`multi_choice` — no extra validation yet
+- On failed validation the quiz **doesn't advance**: `step_index` and `answers` stay unchanged, the user gets a message asking them to try again
+
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
 - `.env.example` with placeholder values for new contributors
@@ -343,15 +358,14 @@ leadbot/
 
 ### 🚧 In progress
 
-- **Answer validation** — checking that an answer to a `choice` step is actually among `step.options` (not free-form text), plus format checks for `phone`/`email`
+- **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
 
 ### 📋 Planned (next steps)
 
-1. **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
-2. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
-3. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
-4. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
-6. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
+1. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
+2. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
+3. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
+4. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
 
 ### 🔮 Down the line (not a priority)
 
