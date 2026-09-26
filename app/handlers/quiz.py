@@ -2,13 +2,22 @@ from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram import F
+from aiogram.types import ReplyKeyboardRemove
 
 from app.config import quiz
 from app.quiz.engine import QuizStates, get_current_step
 from app.db.repo import get_or_create_user
 from app.db.models import Lead
+from app.quiz.keyboards import build_keyboard
 
 router = Router()
+
+
+@router.message(QuizStates.in_progress, F.text == "❌Скасувати")
+async def cancel_quiz_handler(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Квіз скасовано.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(QuizStates.in_progress)
@@ -29,7 +38,8 @@ async def quiz_answer_handler(
 
     if next_step is not None:
         await state.update_data(step_index=next_index, answers=answers)
-        await message.answer(next_step.text)
+        keyboard = build_keyboard(next_step)
+        await message.answer(next_step.text, reply_markup=keyboard)
     else:
         user = await get_or_create_user(
             session=session,
