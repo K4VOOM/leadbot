@@ -32,6 +32,10 @@ async def quiz_answer_handler(
     if current_step is None:
         return
 
+    if current_step.type == "choice" and message.text not in current_step.options:
+            await message.answer("Оберіть вірну опцію", reply_markup=build_keyboard(current_step))
+            return
+
     answers[current_step.id] = message.text
     next_index = step_index + 1
     next_step = get_current_step(quiz, next_index)
