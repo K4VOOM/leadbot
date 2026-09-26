@@ -123,6 +123,12 @@ leadbot/
 - `session.add(lead)` перед `state.clear()` — якщо збереження впаде, стан юзера не скидається, і відповіді не губляться
 - Перевірено через psql: рядок у `leads` містить усі відповіді квізу, правильний `user_id`, `status="new"` і заповнений `created_at` (обидва — Python-side/server-side дефолти, нічого не передавалось вручну)
 
+**Клавіатури для `choice`-кроків**
+- `app/quiz/keyboards.py`: `build_keyboard(step)` — будує reply-клавіатуру з `step.options` (через `ReplyKeyboardBuilder`) плюс кнопку "❌Скасувати"; для кроків без `options` повертає `ReplyKeyboardRemove()`, щоб клавіатура не висіла на текстових питаннях
+- Клавіатура підключена в обох місцях показу питання — в `start.py` (перше питання) і `quiz.py` (наступні питання)
+- Окремий хендлер `cancel_quiz_handler` на точний текст кнопки (`F.text == "❌Скасувати"`), зареєстрований **до** `quiz_answer_handler` у файлі — порядок реєстрації в aiogram визначає, який хендлер перехопить повідомлення першим
+- Перевірено на живому боті: клавіатура з'являється на `choice`-кроках, зникає на текстових, скасування коректно чистить стан і забирає клавіатуру
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
@@ -130,15 +136,14 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Клавіатури для кроків типу `choice`/`multi_choice`** — побудова inline/reply-клавіатури з `options` кроку, замість очікування довільного тексту
+- **Валідація відповідей** — перевірка, що відповідь на `choice`-крок дійсно належить `step.options` (а не довільний текст), формат для `phone`/`email`
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **Валідація відповідей** — формат для `phone`/`email`, перевірка що вибір належить `options`
-2. **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
-3. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
-4. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
-5. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
+1. **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
+2. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
+3. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
+4. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
 7. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
 
 ### 🔮 На перспективу (не пріоритет)
@@ -325,6 +330,12 @@ leadbot/
 - `session.add(lead)` happens before `state.clear()` — if saving fails, the user's state isn't cleared and the answers aren't lost
 - Verified via psql: the row in `leads` contains all quiz answers, the correct `user_id`, `status="new"`, and a populated `created_at` (both are Python-side/server-side defaults, nothing passed manually)
 
+**Keyboards for `choice` steps**
+- `app/quiz/keyboards.py`: `build_keyboard(step)` — builds a reply keyboard from `step.options` (via `ReplyKeyboardBuilder`) plus a "❌ Cancel" button; for steps without `options` it returns `ReplyKeyboardRemove()`, so the keyboard doesn't linger on text questions
+- The keyboard is wired in at both places a question is shown — `start.py` (the first question) and `quiz.py` (subsequent questions)
+- A separate `cancel_quiz_handler` matching the exact button text (`F.text == "❌Скасувати"`), registered **before** `quiz_answer_handler` in the file — in aiogram, registration order determines which handler catches a message first
+- Verified on the live bot: the keyboard appears on `choice` steps, disappears on text steps, and cancelling correctly clears the state and removes the keyboard
+
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
 - `.env.example` with placeholder values for new contributors
@@ -332,20 +343,15 @@ leadbot/
 
 ### 🚧 In progress
 
-- **Keyboards for `choice`/`multi_choice` steps** — building an inline/reply keyboard from the step's `options`, instead of waiting for free-form text
+- **Answer validation** — checking that an answer to a `choice` step is actually among `step.options` (not free-form text), plus format checks for `phone`/`email`
 
 ### 📋 Planned (next steps)
 
-1. **Answer validation** — format checks for `phone`/`email`, checking that a choice is among `options`
-2. **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
-3. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
-4. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
-5. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
-3. **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
-4. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
-5. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
-6. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
-7. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
+1. **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
+2. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
+3. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
+4. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
+6. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
 
 ### 🔮 Down the line (not a priority)
 

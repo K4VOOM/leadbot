@@ -5,9 +5,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import quiz
 from app.db.repo import get_or_create_user
 from app.quiz.engine import QuizStates, get_current_step
-from app.config import quiz
+from app.quiz.keyboards import build_keyboard
 
 router = Router()
 
@@ -43,4 +44,5 @@ async def command_start_handler(
 
     first_step = get_current_step(quiz, 0)
     if first_step is not None:
-        await message.answer(first_step.text)
+        keyboard = build_keyboard(first_step)
+        await message.answer(first_step.text, reply_markup=keyboard)
