@@ -137,6 +137,11 @@ leadbot/
 - `text`/`multi_choice` — без додаткової валідації поки що
 - При невдалій валідації квіз **не рухається далі**: `step_index` і `answers` не змінюються, користувачу показується повідомлення з проханням повторити
 
+**Дедуп лідів**
+- `app/db/repo.py`: `has_recent_lead(session, user_id, hours=24)` — перевіряє, чи є в юзера лід, створений пізніше за поріг `now() - 24h`
+- `.scalars().first()` замість `.scalar_one_or_none()` — бо в юзера цілком може бути кілька лідів, і `scalar_one_or_none` впав би з `MultipleResultsFound`
+- Підключено в `quiz_answer_handler`: якщо в юзера вже є недавній лід, новий не створюється, натомість інше повідомлення ("вже залишали заявку нещодавно"); `state.clear()` виконується в обох випадках, щоб бот не "зависав" мовчки для юзера з недавнім лідом
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
@@ -144,14 +149,13 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Дедуп лідів** — той самий `tg_id` не створює новий лід протягом 24 год
+- **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
-2. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
-3. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
-4. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
+1. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
+2. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
+3. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
 
 ### 🔮 На перспективу (не пріоритет)
 
@@ -351,6 +355,11 @@ leadbot/
 - `text`/`multi_choice` — no extra validation yet
 - On failed validation the quiz **doesn't advance**: `step_index` and `answers` stay unchanged, the user gets a message asking them to try again
 
+**Lead dedup**
+- `app/db/repo.py`: `has_recent_lead(session, user_id, hours=24)` — checks whether the user has a lead created after the threshold `now() - 24h`
+- Uses `.scalars().first()` instead of `.scalar_one_or_none()` — since a user can well have multiple leads, and `scalar_one_or_none` would raise `MultipleResultsFound`
+- Wired into `quiz_answer_handler`: if the user already has a recent lead, a new one isn't created; instead a different message is shown ("you've already submitted a request recently"); `state.clear()` runs in both branches so the bot doesn't silently hang for a user with a recent lead
+
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
 - `.env.example` with placeholder values for new contributors
@@ -358,14 +367,13 @@ leadbot/
 
 ### 🚧 In progress
 
-- **Lead dedup** — the same `tg_id` doesn't create a new lead within 24 hours
+- **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
 
 ### 📋 Planned (next steps)
 
-1. **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
-2. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
-3. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
-4. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
+1. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
+2. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
+3. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
 
 ### 🔮 Down the line (not a priority)
 
