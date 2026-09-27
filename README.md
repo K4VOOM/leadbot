@@ -142,6 +142,13 @@ leadbot/
 - `.scalars().first()` замість `.scalar_one_or_none()` — бо в юзера цілком може бути кілька лідів, і `scalar_one_or_none` впав би з `MultipleResultsFound`
 - Підключено в `quiz_answer_handler`: якщо в юзера вже є недавній лід, новий не створюється, натомість інше повідомлення ("вже залишали заявку нещодавно"); `state.clear()` виконується в обох випадках, щоб бот не "зависав" мовчки для юзера з недавнім лідом
 
+**Сповіщення менеджеру**
+- `app/quiz/engine.py`: `format_lead_summary(quiz, answers)` збирає текст питання разом з відповіддю для кожного кроку квізу (в порядку `quiz.steps`, а не по ключах `answers`)
+- `notify_manager(bot, quiz, answers)` надсилає зібраний текст у `quiz.bot.manager_chat_id`, обгорнуто в `try/except`: якщо надсилання впаде (неправильний chat_id, бот не в чаті), лід усе одно зберігається — сповіщення не критичне для збереження даних
+- Виправлено формат `manager_chat_id`: для каналів/супергруп Bot API вимагає префікс `-100` перед "видимим" ID з клієнта Telegram
+- Перевірено наживо: повідомлення з усіма відповідями доходить до адмін-каналу
+- **Рефакторинг**: валідація (`validate_answer`), побудова тексту (`format_lead_summary`) і надсилання (`notify_manager`) винесені з `quiz_answer_handler` в `app/quiz/engine.py` — хендлер більше не перевантажений, кожна функція відповідає за одну річ
+
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
@@ -149,7 +156,7 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Сповіщення менеджеру** — повідомлення з відповідями + inline-кнопки "Взяв у роботу"/"Закрито", що міняють `Lead.status`
+- **Inline-кнопки на сповіщенні менеджеру** — "Взяв у роботу"/"Закрито" прямо під повідомленням, що міняють `Lead.status`
 
 ### 📋 Заплановано (найближчі кроки)
 
@@ -340,7 +347,7 @@ leadbot/
 - Once the quiz finishes, a `Lead` is created with the accumulated `answers` (JSONB) linked to `user.id` (via another call to `get_or_create_user` by `tg_id`, which returns the already-existing user)
 - `session.add(lead)` happens before `state.clear()` — if saving fails, the user's state isn't cleared and the answers aren't lost
 - Verified via psql: the row in `leads` contains all quiz answers, the correct `user_id`, `status="new"`, and a populated `created_at` (both are Python-side/server-side defaults, nothing passed manually)
-
+src
 **Keyboards for `choice` steps**
 - `app/quiz/keyboards.py`: `build_keyboard(step)` — builds a reply keyboard from `step.options` (via `ReplyKeyboardBuilder`) plus a "❌ Cancel" button; for steps without `options` it returns `ReplyKeyboardRemove()`, so the keyboard doesn't linger on text questions
 - The keyboard is wired in at both places a question is shown — `start.py` (the first question) and `quiz.py` (subsequent questions)
@@ -352,13 +359,20 @@ leadbot/
 - `choice` — checks that `message.text` is actually among `step.options`, otherwise re-asks with the keyboard
 - `email` — format check via a regular expression
 - `phone` — normalization (stripping spaces, dashes, `+`, the `38` country code) and a length check for 10 digits
-- `text`/`multi_choice` — no extra validation yet
+- `text`/`multi_choice` — no extra validation yetsrc
 - On failed validation the quiz **doesn't advance**: `step_index` and `answers` stay unchanged, the user gets a message asking them to try again
 
 **Lead dedup**
 - `app/db/repo.py`: `has_recent_lead(session, user_id, hours=24)` — checks whether the user has a lead created after the threshold `now() - 24h`
 - Uses `.scalars().first()` instead of `.scalar_one_or_none()` — since a user can well have multiple leads, and `scalar_one_or_none` would raise `MultipleResultsFound`
 - Wired into `quiz_answer_handler`: if the user already has a recent lead, a new one isn't created; instead a different message is shown ("you've already submitted a request recently"); `state.clear()` runs in both branches so the bot doesn't silently hang for a user with a recent lead
+
+**Manager notifications**
+- `app/quiz/engine.py`: `format_lead_summary(quiz, answers)` builds text pairing each step's question with its answer (in `quiz.steps` order, not by `answers` keys)
+- `notify_manager(bot, quiz, answers)` sends the built text to `quiz.bot.manager_chat_id`, wrapped in `try/except`: if sending fails (wrong chat_id, bot not in the chat), the lead is still saved — the notification isn't critical to data persistence
+- Fixed the `manager_chat_id` format: for channels/supergroups the Bot API requires a `-100` prefix in front of the "visible" ID shown in the Telegram client
+- Verified live: a message with all the answers reaches the admin channel
+- **Refactor**: validation (`validate_answer`), text building (`format_lead_summary`), and sending (`notify_manager`) were extracted out of `quiz_answer_handler` into `app/quiz/engine.py` — the handler is no longer overloaded, each function has a single responsibility
 
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
@@ -367,7 +381,7 @@ leadbot/
 
 ### 🚧 In progress
 
-- **Manager notifications** — a message with the answers + inline buttons "In progress"/"Closed" that update `Lead.status`
+- **Inline buttons on the manager notification** — "In progress"/"Closed" right under the message, updating `Lead.status`
 
 ### 📋 Planned (next steps)
 
