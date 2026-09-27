@@ -8,10 +8,10 @@ from aiogram.types import ReplyKeyboardRemove
 import re
 
 from app.config import quiz
-from app.quiz.engine import QuizStates, get_current_step
-from app.db.repo import get_or_create_user
 from app.db.models import Lead
+from app.db.repo import get_or_create_user, has_recent_lead
 from app.quiz.keyboards import build_keyboard
+from app.quiz.engine import QuizStates, get_current_step
 
 router = Router()
 
@@ -24,7 +24,7 @@ async def cancel_quiz_handler(message: Message, state: FSMContext) -> None:
 
 @router.message(QuizStates.in_progress)
 async def quiz_answer_handler(
-    message: Message, state: FSMContext, session: AsyncSession
+        message: Message, state: FSMContext, session: AsyncSession
 ) -> None:
     data = await state.get_data()
     step_index = data["step_index"]
@@ -45,7 +45,7 @@ async def quiz_answer_handler(
                 return
         case "phone":
             phone = message.text
-            phone = phone.replace(" ","")
+            phone = phone.replace(" ", "")
             phone = phone.replace("-", "")
             if phone[0:1] == "+":
                 phone = phone[1:]
@@ -76,7 +76,12 @@ async def quiz_answer_handler(
             utm_source=None,
             utm_campaign=None,
         )
-        lead = Lead(user_id=user.id, answers=answers)
-        session.add(lead)
-        await message.answer(quiz.bot.finish)
+
+        if await has_recent_lead(session, user.id):
+            await message.answer("Ви вже залишали заявку нещодавно, ми зв'яжемось з вами найближчим часом")
+        else:
+            lead = Lead(user_id=user.id, answers=answers)
+            session.add(lead)
+            await message.answer(quiz.bot.finish)
+
         await state.clear()
