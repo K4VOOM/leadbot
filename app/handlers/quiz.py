@@ -1,17 +1,19 @@
-from aiogram import Router
+import logging
+
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
-from sqlalchemy.ext.asyncio import AsyncSession
-from aiogram import F
+from aiogram import F, Bot, Router
 from aiogram.types import ReplyKeyboardRemove
 
-import re
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import quiz
 from app.db.models import Lead
 from app.db.repo import get_or_create_user, has_recent_lead
 from app.quiz.keyboards import build_keyboard
 from app.quiz.engine import QuizStates, get_current_step
+
+import re
 
 router = Router()
 
@@ -24,7 +26,7 @@ async def cancel_quiz_handler(message: Message, state: FSMContext) -> None:
 
 @router.message(QuizStates.in_progress)
 async def quiz_answer_handler(
-        message: Message, state: FSMContext, session: AsyncSession
+        message: Message, state: FSMContext, session: AsyncSession, bot: Bot
 ) -> None:
     data = await state.get_data()
     step_index = data["step_index"]
@@ -82,6 +84,18 @@ async def quiz_answer_handler(
         else:
             lead = Lead(user_id=user.id, answers=answers)
             session.add(lead)
+
+            lines = []
+            for step in quiz.steps:
+                answer = answers.get(step.id, "—")
+                lines.append(f"{step.text}: {answer}")
+            text = "\n".join(lines)
+
+            try:
+                await bot.send_message(chat_id=quiz.bot.manager_chat_id, text=text)
+            except Exception:
+                logging.exception("Unable to send a notification to the manager")
+
             await message.answer(quiz.bot.finish)
 
         await state.clear()
