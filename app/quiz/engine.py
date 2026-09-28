@@ -5,6 +5,7 @@ from aiogram import Bot
 from aiogram.fsm.state import State, StatesGroup
 
 from app.quiz.schema import Quiz, Step
+from app.quiz.keyboards import build_lead_keyboard
 
 
 class QuizStates(StatesGroup):
@@ -50,9 +51,9 @@ def format_lead_summary(quiz: Quiz, answers: dict) -> str:
     return "\n".join(lines)
 
 
-async def notify_manager(bot: Bot, quiz: Quiz, answers: dict) -> None:
+async def notify_manager(bot: Bot, quiz: Quiz, answers: dict, lead_id: int) -> None:
     text = format_lead_summary(quiz, answers)
     try:
-        await bot.send_message(chat_id=quiz.bot.manager_chat_id, text=text)
+        await bot.send_message(chat_id=quiz.bot.manager_chat_id, text=text, reply_markup=build_lead_keyboard(lead_id))
     except Exception:
         logging.exception("Unable to send a notification to the manager")

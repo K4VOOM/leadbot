@@ -38,3 +38,11 @@ async def has_recent_lead(session: AsyncSession, user_id: int, hours: int = 24) 
     result = await session.execute(stmt)
     lead = result.scalars().first()
     return lead is not None
+
+
+async def set_lead_status(session: AsyncSession, lead_id: int, status: str) -> bool:
+    lead = await session.get(Lead, lead_id)
+    if lead is None:
+        return False
+    lead.status = status
+    return True
