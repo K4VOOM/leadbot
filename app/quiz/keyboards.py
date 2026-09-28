@@ -25,6 +25,10 @@ def build_keyboard(step: Step) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
 def build_lead_keyboard(lead_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
+        text="🆕 Нова",
+        callback_data=LeadAction(lead_id=lead_id, action="new"),
+    )
+    builder.button(
         text="✅ Взяв у роботу",
         callback_data=LeadAction(lead_id=lead_id, action="in_work"),
     )

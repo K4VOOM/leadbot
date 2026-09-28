@@ -12,24 +12,26 @@ from app.middlewares.db import DbSessionMiddleware
 
 from app.handlers.start import router as start_router
 from app.handlers.quiz import router as quiz_router
+from app.handlers.manager import router as manager_router
 
 TOKEN = settings.bot_token
 
 dp = Dispatcher()
 dp.include_router(start_router)
 dp.include_router(quiz_router)
+dp.include_router(manager_router)
 
 dp.update.outer_middleware(DbSessionMiddleware(session_pool=async_session))
 
 
 async def main() -> None:
-  bot = Bot(
-      token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-  )
+    bot = Bot(
+        token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
 
-  await dp.start_polling(bot)
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-  logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-  asyncio.run(main())
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    asyncio.run(main())
