@@ -63,6 +63,7 @@ async def quiz_answer_handler(
         else:
             lead = Lead(user_id=user.id, answers=answers)
             session.add(lead)
-            await notify_manager(bot, quiz, answers)
+            await session.flush()
+            await notify_manager(bot, quiz, answers, lead.id)
             await message.answer(quiz.bot.finish)
         await state.clear()
