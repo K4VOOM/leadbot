@@ -40,9 +40,9 @@ async def has_recent_lead(session: AsyncSession, user_id: int, hours: int = 24) 
     return lead is not None
 
 
-async def set_lead_status(session: AsyncSession, lead_id: int, status: str) -> bool:
+async def set_lead_status(session: AsyncSession, lead_id: int, status: str) -> Lead | None:
     lead = await session.get(Lead, lead_id)
     if lead is None:
-        return False
+        return None
     lead.status = status
-    return True
+    return lead

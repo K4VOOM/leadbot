@@ -1,11 +1,17 @@
 import logging
 import re
 
-from aiogram import Bot
+from aiogram import Bot, html
 from aiogram.fsm.state import State, StatesGroup
 
 from app.quiz.schema import Quiz, Step
 from app.quiz.keyboards import build_lead_keyboard
+
+STATUS_LABELS = {
+    "new": "🆕 Нова",
+    "in_work": "✅ В роботі",
+    "closed": "🔒 Закрито",
+}
 
 
 class QuizStates(StatesGroup):
@@ -43,16 +49,16 @@ def validate_answer(step: Step, text: str) -> str | None:
     return None
 
 
-def format_lead_summary(quiz: Quiz, answers: dict) -> str:
+def format_lead_message(quiz: Quiz, answers: dict, status: str) -> str:
     lines = []
     for step in quiz.steps:
-        answer = answers.get(step.id, "—")
+        answer = html.quote(str(answers.get(step.id, "—")))
         lines.append(f"{step.text}: {answer}")
-    return "\n".join(lines)
-
+    body = "\n".join(lines)
+    return f"{body}\n\n<b>Статус: {STATUS_LABELS[status]}</b>"
 
 async def notify_manager(bot: Bot, quiz: Quiz, answers: dict, lead_id: int) -> None:
-    text = format_lead_summary(quiz, answers)
+    text = format_lead_message(quiz, answers, status="new")
     try:
         await bot.send_message(chat_id=quiz.bot.manager_chat_id, text=text, reply_markup=build_lead_keyboard(lead_id))
     except Exception:
