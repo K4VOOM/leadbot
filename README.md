@@ -36,10 +36,11 @@ leadbot/
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── models.py            # ORM-моделі: User, Lead
-│   │   ├── repo.py              # get_or_create_user з on_conflict_do_nothing
+│   │   ├── repo.py              # get_or_create_user, has_recent_lead, set_lead_status
 │   │   └── session.py           # Base, async engine, async_sessionmaker
 │   ├── handlers/
 │   │   ├── __init__.py
+│   │   ├── manager.py           # callback-кнопки статусу ліда для менеджера
 │   │   ├── quiz.py              # обробка відповідей квізу, рух по кроках
 │   │   └── start.py             # /start: UTM, get_or_create_user, ініціалізація квізу
 │   ├── middlewares/
@@ -47,7 +48,8 @@ leadbot/
 │   │   └── db.py                # DbSessionMiddleware: сесія на кожен апдейт
 │   ├── quiz/
 │   │   ├── __init__.py
-│   │   ├── engine.py            # QuizStates, get_current_step()
+│   │   ├── engine.py            # QuizStates, get_current_step, validate_answer, notify_manager
+│   │   ├── keyboards.py         # reply-клавіатура квізу, LeadAction, inline-кнопки статусу
 │   │   ├── loader.py            # load_quiz() — читання й валідація quiz.yaml
 │   │   └── schema.py            # pydantic-моделі BotSetting, Step, Quiz
 │   ├── __init__.py
@@ -143,11 +145,18 @@ leadbot/
 - Підключено в `quiz_answer_handler`: якщо в юзера вже є недавній лід, новий не створюється, натомість інше повідомлення ("вже залишали заявку нещодавно"); `state.clear()` виконується в обох випадках, щоб бот не "зависав" мовчки для юзера з недавнім лідом
 
 **Сповіщення менеджеру**
-- `app/quiz/engine.py`: `format_lead_summary(quiz, answers)` збирає текст питання разом з відповіддю для кожного кроку квізу (в порядку `quiz.steps`, а не по ключах `answers`)
-- `notify_manager(bot, quiz, answers)` надсилає зібраний текст у `quiz.bot.manager_chat_id`, обгорнуто в `try/except`: якщо надсилання впаде (неправильний chat_id, бот не в чаті), лід усе одно зберігається — сповіщення не критичне для збереження даних
+- `app/quiz/engine.py`: `format_lead_message(quiz, answers, status)` збирає текст питання разом з відповіддю для кожного кроку квізу (в порядку `quiz.steps`, а не по ключах `answers`) і дописує жирним поточний статус; відповіді клієнта екрануються через `html.quote`, щоб довільний ввід не ламав HTML-розмітку
+- `notify_manager(bot, quiz, answers, lead_id)` надсилає зібраний текст у `quiz.bot.manager_chat_id`, обгорнуто в `try/except`: якщо надсилання впаде (неправильний chat_id, бот не в чаті), лід усе одно зберігається — сповіщення не критичне для збереження даних
 - Виправлено формат `manager_chat_id`: для каналів/супергруп Bot API вимагає префікс `-100` перед "видимим" ID з клієнта Telegram
-- Перевірено наживо: повідомлення з усіма відповідями доходить до адмін-каналу
-- **Рефакторинг**: валідація (`validate_answer`), побудова тексту (`format_lead_summary`) і надсилання (`notify_manager`) винесені з `quiz_answer_handler` в `app/quiz/engine.py` — хендлер більше не перевантажений, кожна функція відповідає за одну річ
+- **Рефакторинг**: валідація (`validate_answer`), побудова тексту і надсилання (`notify_manager`) винесені з `quiz_answer_handler` в `app/quiz/engine.py` — хендлер більше не перевантажений, кожна функція відповідає за одну річ
+
+**Керування статусом ліда**
+- Під повідомленням три inline-кнопки: "🆕 Нова", "✅ Взяв у роботу", "🔒 Закрито". Кнопки не зникають після натискання, поточний статус завжди видно жирним в кінці повідомлення
+- `LeadAction(CallbackData, prefix="lead")` несе `lead_id` і `action`, тож aiogram сам розпаковує `lead:5:in_work` без ручного `split`
+- `app/handlers/manager.py`: хендлер на `LeadAction.filter()` оновлює статус через `set_lead_status`, перебудовує текст **з БД** (БД лишається єдиним джерелом правди) і редагує повідомлення
+- `await session.flush()` у `quiz_answer_handler` після `session.add(lead)`: `lead.id` призначає база при INSERT, а він потрібен для кнопок ще до коміту транзакції
+- Обробка крайніх випадків: повторне натискання тієї ж кнопки (`message is not modified`) ігнорується; при `TelegramRetryAfter` (flood control на редагуванні) робиться `rollback`, щоб БД не розійшлась з тим, що бачить менеджер
+- Перевірено наживо: статуси змінюються, кнопки лишаються
 
 **Git**
 - Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
@@ -156,13 +165,12 @@ leadbot/
 
 ### 🚧 У процесі
 
-- **Inline-кнопки на сповіщенні менеджеру** — "Взяв у роботу"/"Закрито" прямо під повідомленням, що міняють `Lead.status`
+- **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
-2. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
-3. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
+1. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
+2. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
 
 ### 🔮 На перспективу (не пріоритет)
 
@@ -261,10 +269,11 @@ leadbot/
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── models.py            # ORM models: User, Lead
-│   │   ├── repo.py              # get_or_create_user with on_conflict_do_nothing
+│   │   ├── repo.py              # get_or_create_user, has_recent_lead, set_lead_status
 │   │   └── session.py           # Base, async engine, async_sessionmaker
 │   ├── handlers/
 │   │   ├── __init__.py
+│   │   ├── manager.py           # callback buttons for the lead status (manager side)
 │   │   ├── quiz.py              # quiz answer handling, step progression
 │   │   └── start.py             # /start: UTM, get_or_create_user, quiz initialization
 │   ├── middlewares/
@@ -272,7 +281,8 @@ leadbot/
 │   │   └── db.py                # DbSessionMiddleware: a session per update
 │   ├── quiz/
 │   │   ├── __init__.py
-│   │   ├── engine.py            # QuizStates, get_current_step()
+│   │   ├── engine.py            # QuizStates, get_current_step, validate_answer, notify_manager
+│   │   ├── keyboards.py         # quiz reply keyboard, LeadAction, inline status buttons
 │   │   ├── loader.py            # load_quiz() — reads and validates quiz.yaml
 │   │   └── schema.py            # pydantic models BotSetting, Step, Quiz
 │   ├── __init__.py
@@ -347,7 +357,7 @@ leadbot/
 - Once the quiz finishes, a `Lead` is created with the accumulated `answers` (JSONB) linked to `user.id` (via another call to `get_or_create_user` by `tg_id`, which returns the already-existing user)
 - `session.add(lead)` happens before `state.clear()` — if saving fails, the user's state isn't cleared and the answers aren't lost
 - Verified via psql: the row in `leads` contains all quiz answers, the correct `user_id`, `status="new"`, and a populated `created_at` (both are Python-side/server-side defaults, nothing passed manually)
-src
+
 **Keyboards for `choice` steps**
 - `app/quiz/keyboards.py`: `build_keyboard(step)` — builds a reply keyboard from `step.options` (via `ReplyKeyboardBuilder`) plus a "❌ Cancel" button; for steps without `options` it returns `ReplyKeyboardRemove()`, so the keyboard doesn't linger on text questions
 - The keyboard is wired in at both places a question is shown — `start.py` (the first question) and `quiz.py` (subsequent questions)
@@ -359,7 +369,7 @@ src
 - `choice` — checks that `message.text` is actually among `step.options`, otherwise re-asks with the keyboard
 - `email` — format check via a regular expression
 - `phone` — normalization (stripping spaces, dashes, `+`, the `38` country code) and a length check for 10 digits
-- `text`/`multi_choice` — no extra validation yetsrc
+- `text`/`multi_choice` — no extra validation yet
 - On failed validation the quiz **doesn't advance**: `step_index` and `answers` stay unchanged, the user gets a message asking them to try again
 
 **Lead dedup**
@@ -368,11 +378,18 @@ src
 - Wired into `quiz_answer_handler`: if the user already has a recent lead, a new one isn't created; instead a different message is shown ("you've already submitted a request recently"); `state.clear()` runs in both branches so the bot doesn't silently hang for a user with a recent lead
 
 **Manager notifications**
-- `app/quiz/engine.py`: `format_lead_summary(quiz, answers)` builds text pairing each step's question with its answer (in `quiz.steps` order, not by `answers` keys)
-- `notify_manager(bot, quiz, answers)` sends the built text to `quiz.bot.manager_chat_id`, wrapped in `try/except`: if sending fails (wrong chat_id, bot not in the chat), the lead is still saved — the notification isn't critical to data persistence
+- `app/quiz/engine.py`: `format_lead_message(quiz, answers, status)` builds text pairing each step's question with its answer (in `quiz.steps` order, not by `answers` keys) and appends the current status in bold; client answers are escaped via `html.quote` so arbitrary input can't break the HTML markup
+- `notify_manager(bot, quiz, answers, lead_id)` sends the built text to `quiz.bot.manager_chat_id`, wrapped in `try/except`: if sending fails (wrong chat_id, bot not in the chat), the lead is still saved — the notification isn't critical to data persistence
 - Fixed the `manager_chat_id` format: for channels/supergroups the Bot API requires a `-100` prefix in front of the "visible" ID shown in the Telegram client
-- Verified live: a message with all the answers reaches the admin channel
-- **Refactor**: validation (`validate_answer`), text building (`format_lead_summary`), and sending (`notify_manager`) were extracted out of `quiz_answer_handler` into `app/quiz/engine.py` — the handler is no longer overloaded, each function has a single responsibility
+- **Refactor**: validation (`validate_answer`), text building, and sending (`notify_manager`) were extracted out of `quiz_answer_handler` into `app/quiz/engine.py` — the handler is no longer overloaded, each function has a single responsibility
+
+**Lead status control**
+- Three inline buttons under the message: "🆕 New", "✅ In progress", "🔒 Closed". The buttons don't disappear after a press, and the current status is always visible in bold at the end of the message
+- `LeadAction(CallbackData, prefix="lead")` carries `lead_id` and `action`, so aiogram unpacks `lead:5:in_work` itself, with no manual `split`
+- `app/handlers/manager.py`: a handler on `LeadAction.filter()` updates the status via `set_lead_status`, rebuilds the text **from the DB** (the DB stays the single source of truth), and edits the message
+- `await session.flush()` in `quiz_answer_handler` after `session.add(lead)`: `lead.id` is assigned by the database on INSERT, and the buttons need it before the transaction commits
+- Edge cases: pressing the same button again (`message is not modified`) is ignored; on `TelegramRetryAfter` (flood control on edits) a `rollback` is issued so the DB doesn't diverge from what the manager sees
+- Verified live: statuses change, buttons stay
 
 **Git**
 - Repository initialized, `.env` and `.venv` are not committed
@@ -381,13 +398,12 @@ src
 
 ### 🚧 In progress
 
-- **Inline buttons on the manager notification** — "In progress"/"Closed" right under the message, updating `Lead.status`
+- **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
 
 ### 📋 Planned (next steps)
 
-1. **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
-2. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
-3. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
+1. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
+2. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
 
 ### 🔮 Down the line (not a priority)
 
