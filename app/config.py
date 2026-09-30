@@ -8,6 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     bot_token: str
     database_url: str
+    google_credentials_json: str
     admin_ids: list[int] = []
     
     model_config = SettingsConfigDict(

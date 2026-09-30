@@ -1,19 +1,18 @@
 import asyncio
+import json
 import logging
-from pathlib import Path
 
 import gspread
 
+from app.config import settings
 from app.quiz.schema import Quiz
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-CREDENTIALS_PATH = BASE_DIR / "secrets" / "google_credentials.json"
 
 SHEET_NAME = "leadbot-sheet"
 
 
 def _append_row_sync(answers: dict, quiz: Quiz) -> None:
-    gc = gspread.service_account(filename=str(CREDENTIALS_PATH))
+    credentials_dict = json.loads(settings.google_credentials_json)
+    gc = gspread.service_account_from_dict(credentials_dict)
     sh = gc.open(SHEET_NAME)
     worksheet = sh.sheet1
     row = [answers.get(step.id, "—") for step in quiz.steps]
