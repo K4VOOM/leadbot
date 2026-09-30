@@ -1,10 +1,11 @@
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datetime import datetime, timedelta, timezone
 
 from app.db.models import User, Lead
+
 
 
 async def get_or_create_user(
@@ -46,3 +47,15 @@ async def set_lead_status(session: AsyncSession, lead_id: int, status: str) -> L
         return None
     lead.status = status
     return lead
+
+async def get_stats(session: AsyncSession) -> dict:
+    total_result = await session.execute(select(func.count()).select_from(Lead))
+    total = total_result.scalar()
+
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_result = await session.execute(
+        select(func.count()).select_from(Lead).where(Lead.created_at >= today_start)
+    )
+    today = today_result.scalar()
+
+    return {"total": total, "today": today}

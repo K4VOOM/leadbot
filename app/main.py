@@ -13,10 +13,12 @@ from app.middlewares.db import DbSessionMiddleware
 from app.handlers.start import router as start_router
 from app.handlers.quiz import router as quiz_router
 from app.handlers.manager import router as manager_router
+from app.handlers.admin import admin_router
 
 TOKEN = settings.bot_token
 
 dp = Dispatcher()
+dp.include_router(admin_router)
 dp.include_router(start_router)
 dp.include_router(quiz_router)
 dp.include_router(manager_router)
