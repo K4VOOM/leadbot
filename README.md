@@ -6,11 +6,13 @@
 
 Telegram-бот на aiogram 3 для проведення квізу, збору заявок (лідів) і передачі їх менеджеру. Квіз описується YAML-конфігом, а не хардкодиться в коді — це основна ідея проєкту: новий клієнт або нова анкетна ніша підключаються через конфіг, без переписування логіки.
 
-Проєкт уже є функціональним MVP: є користувачі, ліди, квіз, UTM-метки, менеджерські статуси, адмін-команди, Google Sheets і PostgreSQL.
+Проєкт уже є функціональним MVP: є користувачі, ліди, квіз, UTM-мітки, менеджерські статуси, адмін-команди, Google Sheets і PostgreSQL.
+
+📄 Архітектурні рішення, підводні камені та повна історія розробки — у [DOCS.md](./DOCS.md).
 
 ## Стек
 
-- Python 3.11+
+- Python 3.14
 - aiogram 3
 - SQLAlchemy 2 + asyncpg
 - PostgreSQL 16
@@ -61,7 +63,8 @@ leadbot/
 ├── secrets/
 │   └── google_credentials.json
 ├── .gitignore
-└── README.md
+├── README.md
+└── DOCS.md
 ```
 
 ## Поточний стан
@@ -74,7 +77,7 @@ leadbot/
 - створення/пошук користувача в PostgreSQL
 - збереження ліда з відповідями у таблиці `leads`
 - перевірка повторної заявки за останні 24 години
-- валідація для `choice`, `email`, `phone`, `text`
+- валідація для `choice`, `email`, `phone` (для `text` і `multi_choice` валідації поки нема)
 - скасування квізу через кнопку або текст
 - надсилання менеджеру повідомлення з inline-статусами
 - редагування статусу ліда через кнопки
@@ -96,7 +99,7 @@ POSTGRES_PASSWORD=change_me
 POSTGRES_DB=leadbot_db
 ```
 
-`app/config.py` завантажує `.env` від кореня проєкту і ігнорує зайві змінні, які приходять від Docker Compose.
+`app/config.py` завантажує `.env` від кореня проєкту й ігнорує зайві змінні, які приходять від Docker Compose.
 
 ### 📄 Конфіг квізу
 
@@ -119,11 +122,9 @@ steps:
 
 Підтримувані типи кроків:
 
-- `choice`
-- `multi_choice`
-- `text`
-- `phone`
-- `email`
+- `choice` — з клавіатурою і валідацією
+- `text`, `phone`, `email` — текстовий ввід, з валідацією формату для `phone`/`email`
+- `multi_choice` — заплановано, поки без спеціальної логіки
 
 ## База даних
 
@@ -185,6 +186,11 @@ python -m app.main
 - `.env` і `secrets/google_credentials.json` не додаються до git
 - для Google Sheets потрібен сервісний акаунт і спільний доступ до таблиці
 - `config.py` читає `.env` від кореня проєкту, тому запуск робочий незалежно від поточної директорії
+- детальні пояснення "чому саме так" — у [DOCS.md](./DOCS.md)
+
+## Плани
+
+Це перший з п'яти пет-проєктів для виходу на фріланс з Telegram-ботами (магазин, бронювання, підписки, **лід-бот**, AI-підтримка). Найближчі кроки та ідеї на перспективу — у розділі "На перспективу" в [DOCS.md](./DOCS.md).
 
 **[⬆ Перемкнутись на English](#leadbot--telegram-lead-generation-bot)**
 
@@ -199,9 +205,11 @@ A Telegram bot built with aiogram 3 that runs a quiz, collects leads, and forwar
 
 The project is already a working MVP: it includes users, leads, UTM tracking, manager statuses, admin commands, PostgreSQL storage, and Google Sheets export.
 
+📄 Architectural decisions, known pitfalls, and the full development history are in [DOCS.md](./DOCS.md).
+
 ## Stack
 
-- Python 3.11+
+- Python 3.14
 - aiogram 3
 - SQLAlchemy 2 + asyncpg
 - PostgreSQL 16
@@ -252,7 +260,8 @@ leadbot/
 ├── secrets/
 │   └── google_credentials.json
 ├── .gitignore
-└── README.md
+├── README.md
+└── DOCS.md
 ```
 
 ## Current state
@@ -265,7 +274,7 @@ leadbot/
 - creating/fetching a user in PostgreSQL
 - storing leads with answers in the `leads` table
 - duplicate lead protection for the last 24 hours
-- validation for `choice`, `email`, `phone`, and `text`
+- validation for `choice`, `email`, and `phone` (no validation yet for `text` and `multi_choice`)
 - quiz cancellation via button or message text
 - manager notifications with inline status actions
 - lead status updates through callback buttons
@@ -310,11 +319,9 @@ steps:
 
 Supported step types:
 
-- `choice`
-- `multi_choice`
-- `text`
-- `phone`
-- `email`
+- `choice` — with a keyboard and validation
+- `text`, `phone`, `email` — text input, with format validation for `phone`/`email`
+- `multi_choice` — planned, no special logic yet
 
 ## Database
 
@@ -375,5 +382,10 @@ python -m app.main
 - `.env` and `secrets/google_credentials.json` are not committed to git
 - Google Sheets requires a service account and shared access to the spreadsheet
 - `app/config.py` resolves `.env` from the project root, so it works regardless of the current working directory
+- detailed "why it's built this way" explanations live in [DOCS.md](./DOCS.md)
+
+## Roadmap
+
+This is the first of five Telegram bot pet projects for going freelance (storefront, booking, subscriptions, **lead-gen**, AI support). Near-term steps and future ideas are in the "Down the line" section of [DOCS.md](./DOCS.md).
 
 **[⬆ Switch to Ukrainian](#leadbot--telegram-бот-для-збору-лідів)**
