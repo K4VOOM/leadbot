@@ -51,12 +51,15 @@ leadbot/
 │   │   ├── engine.py            # QuizStates, get_current_step, validate_answer, notify_manager
 │   │   ├── keyboards.py         # reply-клавіатура квізу, LeadAction, inline-кнопки статусу
 │   │   ├── loader.py            # load_quiz() — читання й валідація quiz.yaml
-│   │   └── schema.py            # pydantic-моделі BotSetting, Step, Quiz
+│   │   ├── schema.py            # pydantic-моделі BotSetting, Step, Quiz
+│   │   └── sheets.py            # append_lead_to_sheet() — запис ліда в Google Sheets
 │   ├── __init__.py
 │   ├── config.py                # Settings (pydantic-settings), читає .env; тут же завантажується quiz
 │   └── main.py                  # точка входу, запуск polling, підключення роутерів і middleware
 ├── configs/
 │   └── quiz.yaml                 # конфіг квізу: кроки, привітання, текст завершення
+├── secrets/
+│   └── google_credentials.json   # ключ сервісного акаунта Google, НЕ в git
 ├── .env                            # секрети, НЕ в git
 ├── .env.example                     # шаблон для .env
 ├── .gitignore
@@ -158,19 +161,26 @@ leadbot/
 - Обробка крайніх випадків: повторне натискання тієї ж кнопки (`message is not modified`) ігнорується; при `TelegramRetryAfter` (flood control на редагуванні) робиться `rollback`, щоб БД не розійшлась з тим, що бачить менеджер
 - Перевірено наживо: статуси змінюються, кнопки лишаються
 
+**Google Sheets інтеграція**
+- Сервісний акаунт Google Cloud (Sheets API + Drive API увімкнені), ключ у `secrets/google_credentials.json` (поза git, шлях через `BASE_DIR`, як і `.env`/`quiz.yaml`)
+- Таблиця розшарена з правами Editor на `client_email` сервісного акаунта — без цього `gspread` не бачить таблицю навіть із дійсним ключем
+- `app/quiz/sheets.py`: синхронна логіка (`gspread`) винесена в `_append_row_sync`, викликається через `await asyncio.to_thread(...)`, щоб не блокувати event loop бота на час мережевого запиту до Google
+- `append_lead_to_sheet(quiz, answers)` обгорнута в `try/except` з логуванням — якщо Google недоступний, лід усе одно зберігається в БД і сповіщення менеджеру все одно йде, обидва виклики незалежні один від одного
+- Рядок у таблиці будується в порядку `quiz.steps`, той самий підхід, що і в `format_lead_message`
+- Перевірено наживо: одне проходження квізу одночасно створює лід у БД, надсилає сповіщення в канал і дописує рядок у Google-таблицю
+
 **Git**
-- Репозиторій ініціалізований, `.env` і `.venv` не потрапляють у коміти
+- Репозиторій ініціалізований, `.env`, `.venv` і `secrets/` не потрапляють у коміти
 - `.env.example` з фейковими значеннями для нових розробників
 - Комітиться поетапно, з осмисленими повідомленнями, після кожного перевіреного кроку
 
 ### 🚧 У процесі
 
-- **Google Sheets інтеграція** — `gspread` (обгорнутий у `asyncio.to_thread`, щоб не блокував event loop), запис ліда з ретраєм, що не ламає основний потік при недоступності Google
+- **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
 
 ### 📋 Заплановано (найближчі кроки)
 
-1. **Адмінка в боті** — `/stats` (ліди за період з розбивкою по UTM), `/export` (CSV), `/broadcast` із сегментацією за відповідями квізу
-2. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
+1. **Розсилка** — rate limit ~20 повідомлень/сек, обробка `TelegramForbiddenError` (юзер заблокував бота → `subscribed=False`)
 
 ### 🔮 На перспективу (не пріоритет)
 
@@ -179,6 +189,7 @@ leadbot/
 - Деплой на VPS/Railway з `docker-compose.prod.yml`
 - Другий приклад `quiz.yaml` під іншу нішу — для демонстрації в портфоліо, що шаблон легко переналаштувати під нового клієнта
 - Rate limiting і захист від спаму на рівні хендлерів
+- Реальний ретрай (кілька спроб з бекофом) для запису в Google Sheets — зараз лише одна спроба з try/except і логуванням
 
 ## Ключові архітектурні рішення
 
@@ -284,12 +295,15 @@ leadbot/
 │   │   ├── engine.py            # QuizStates, get_current_step, validate_answer, notify_manager
 │   │   ├── keyboards.py         # quiz reply keyboard, LeadAction, inline status buttons
 │   │   ├── loader.py            # load_quiz() — reads and validates quiz.yaml
-│   │   └── schema.py            # pydantic models BotSetting, Step, Quiz
+│   │   ├── schema.py            # pydantic models BotSetting, Step, Quiz
+│   │   └── sheets.py            # append_lead_to_sheet() — writes a lead to Google Sheets
 │   ├── __init__.py
 │   ├── config.py                # Settings (pydantic-settings), reads .env; also loads quiz
 │   └── main.py                  # entry point, starts polling, wires up routers and middleware
 ├── configs/
 │   └── quiz.yaml                 # quiz config: steps, welcome message, finish message
+├── secrets/
+│   └── google_credentials.json   # Google service account key, NOT in git
 ├── .env                            # secrets, NOT in git
 ├── .env.example                     # template for .env
 ├── .gitignore
@@ -391,19 +405,26 @@ leadbot/
 - Edge cases: pressing the same button again (`message is not modified`) is ignored; on `TelegramRetryAfter` (flood control on edits) a `rollback` is issued so the DB doesn't diverge from what the manager sees
 - Verified live: statuses change, buttons stay
 
+**Google Sheets integration**
+- A Google Cloud service account (Sheets API + Drive API enabled), key stored at `secrets/google_credentials.json` (outside git, path built via `BASE_DIR`, same as `.env`/`quiz.yaml`)
+- The spreadsheet is shared with Editor access to the service account's `client_email` — without this `gspread` can't see the sheet even with a valid key
+- `app/quiz/sheets.py`: the synchronous logic (`gspread`) is isolated in `_append_row_sync`, called via `await asyncio.to_thread(...)` so it doesn't block the bot's event loop during the network call to Google
+- `append_lead_to_sheet(quiz, answers)` is wrapped in `try/except` with logging — if Google is unavailable, the lead is still saved to the DB and the manager notification still goes out, the two calls are independent
+- The row is built in `quiz.steps` order, the same approach used for `format_lead_message`
+- Verified live: a single quiz run creates a lead in the DB, notifies the channel, and appends a row to the Google sheet, all at once
+
 **Git**
-- Repository initialized, `.env` and `.venv` are not committed
+- Repository initialized, `.env`, `.venv`, and `secrets/` are not committed
 - `.env.example` with placeholder values for new contributors
 - Committed incrementally, with meaningful messages, after each verified step
 
 ### 🚧 In progress
 
-- **Google Sheets integration** — `gspread` (wrapped in `asyncio.to_thread` so it doesn't block the event loop), writing a lead with retries that don't break the main flow if Google is unavailable
+- **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
 
 ### 📋 Planned (next steps)
 
-1. **In-bot admin panel** — `/stats` (leads over a period, broken down by UTM), `/export` (CSV), `/broadcast` with segmentation by quiz answers
-2. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
+1. **Broadcasts** — rate limit of ~20 messages/sec, handling `TelegramForbiddenError` (user blocked the bot → `subscribed=False`)
 
 ### 🔮 Down the line (not a priority)
 
@@ -412,6 +433,7 @@ leadbot/
 - Deployment to a VPS/Railway with `docker-compose.prod.yml`
 - A second `quiz.yaml` example for a different niche — for the portfolio, to show how quickly the template can be reconfigured for a new client
 - Rate limiting and spam protection at the handler level
+- Real retry logic (several attempts with backoff) for Google Sheets writes — currently just one attempt with try/except and logging
 
 ## Key architectural decisions
 
