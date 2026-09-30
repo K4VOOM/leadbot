@@ -10,6 +10,7 @@ from app.db.models import Lead
 from app.db.repo import get_or_create_user, has_recent_lead
 from app.quiz.keyboards import build_keyboard
 from app.quiz.engine import QuizStates, get_current_step, validate_answer, notify_manager
+from app.quiz.sheets import append_lead_to_sheet
 
 router = Router()
 
@@ -65,5 +66,6 @@ async def quiz_answer_handler(
             session.add(lead)
             await session.flush()
             await notify_manager(bot, quiz, answers, lead.id)
+            await append_lead_to_sheet(quiz, answers)
             await message.answer(quiz.bot.finish)
         await state.clear()
