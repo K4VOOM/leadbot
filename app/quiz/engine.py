@@ -17,6 +17,9 @@ STATUS_LABELS = {
 class QuizStates(StatesGroup):
     in_progress = State()
 
+class BroadcastStates(StatesGroup):
+    waiting_for_text = State()
+
 
 def get_current_step(quiz: Quiz, step_index: int) -> Step | None:
     if step_index >= len(quiz.steps):
